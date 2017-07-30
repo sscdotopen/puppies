@@ -1,0 +1,10 @@
+[package]
+name = "puppies"
+version = "0.1.0"
+authors = ["ssc <ssc@apache.org>"]
+
+[dependencies]
+rand="0.3.13"
+csv="0.15.0"
+fnv="1.0.5"
+scoped-pool = "1"
