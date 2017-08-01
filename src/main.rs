@@ -196,9 +196,11 @@ fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: 
 
     if indicators_for_item.len() < k {
       indicators_for_item.push(scored_item);
-    } else if scored_item < *indicators_for_item.peek().unwrap() {
+    } else {
       let mut top = indicators_for_item.peek_mut().unwrap();
-      *top = scored_item;
+      if scored_item < *top {
+        *top = scored_item;
+      }
     }
 
   }
