@@ -9,7 +9,7 @@ pub fn log_likelihood_ratio(k11: u64, k12: u64, k21: u64, k22: u64) -> f64 {
     // round off error
     0.0
   } else {
-    2.0 * (matrix_entropy - row_entropy - column_entropy)
+    2.0 * (row_entropy + column_entropy - matrix_entropy)
   }
 }
 
