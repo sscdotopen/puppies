@@ -43,13 +43,11 @@ fn main() {
       .take(NUM_USERS)
       .collect::<Vec<Vec<u32>>>();
 
-  let mut c: Vec<FnvHashMap<u32,u16>> = std::iter::repeat(
-      FnvHashMap::with_capacity_and_hasher(10, Default::default()))
-    .take(NUM_ITEMS)
-    .collect::<Vec<FnvHashMap<u32,u16>>>();
-
+  let mut c: Vec<FnvHashMap<u32,u16>> = Vec::with_capacity(NUM_ITEMS);
   let mut indicators: Vec<Mutex<BinaryHeap<ScoredItem>>> = Vec::with_capacity(NUM_ITEMS);
+
   for _ in 0..NUM_ITEMS {
+    c.push(FnvHashMap::with_capacity_and_hasher(10, Default::default()));
     indicators.push(Mutex::new(BinaryHeap::with_capacity(K)));
   }
 
@@ -82,11 +80,8 @@ fn main() {
         if user_interaction_counts[user as usize] < K_MAX {
           for other_item in user_history.iter() {
 
-            { let cooccurrence_count = c[item as usize].entry(*other_item).or_insert(0);
-              *cooccurrence_count += 1; };
-
-            { let reverse_cooccurrence_count = c[*other_item as usize].entry(item).or_insert(0);
-              *reverse_cooccurrence_count += 1; };
+            *c[item as usize].entry(*other_item).or_insert(0) += 1;
+            *c[*other_item as usize].entry(item).or_insert(0) += 1;
 
             row_sums_of_c[*other_item as usize] += 1;
           }
@@ -111,18 +106,12 @@ fn main() {
 
             for (n, other_item) in user_history.iter().enumerate() {
               if n != k {
-                { let cooccurrences = c[item as usize].entry(*other_item).or_insert(0);
-                  *cooccurrences += 1; };
 
-                { let reverse_cooccurrences = c[*other_item as usize].entry(item).or_insert(0);
-                  *reverse_cooccurrences += 1; };
+                *c[item as usize].entry(*other_item).or_insert(0) += 1;
+                *c[*other_item as usize].entry(item).or_insert(0) += 1;
 
-                { let cooccurrences = c[previous_item as usize].entry(*other_item).or_insert(0);
-                  *cooccurrences -= 1; };
-
-                { let reverse_cooccurrences = c[*other_item as usize].entry(previous_item)
-                    .or_insert(0);
-                  *reverse_cooccurrences -= 1; };
+                *c[previous_item as usize].entry(*other_item).or_insert(0) -= 1;
+                *c[*other_item as usize].entry(previous_item).or_insert(0) -= 1;
               }
             }
 
@@ -147,14 +136,18 @@ fn main() {
         let indicators_for_item = &indicators[*item as usize];
 
         scope.execute(move|| {
-          rescore(*item, row, &row_sums_of_c, &num_cooccurrences_observed, indicators_for_item, K)
+          rescore(*item, row, &row_sums_of_c,
+                  &num_cooccurrences_observed, indicators_for_item,
+                  K)
         });
       }
     });
 
 
-    let millis = (batch_start.elapsed().as_secs() * 1_000) + (batch_start.elapsed().subsec_nanos() / 1_000_000) as u64;
-    println!("{} ({}ms for last batch, {} items rescored)", num_interactions_observed, millis, items_to_rescore.len());
+    let millis = (batch_start.elapsed().as_secs() * 1_000) +
+        (batch_start.elapsed().subsec_nanos() / 1_000_000) as u64;
+    println!("{} ({}ms for last batch, {} items rescored)", num_interactions_observed, millis,
+        items_to_rescore.len());
   }
 
 }
@@ -186,29 +179,26 @@ fn read_file_into_batches(file: &str, batch_size: usize) -> Vec<Vec<(u32, u32)>>
 
 
 fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: &[u32],
-           num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<ScoredItem>>, k: usize) {
+  num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<ScoredItem>>, k: usize) {
 
   let mut indicators_for_item = indicators.lock().unwrap();
   indicators_for_item.clear();
 
-  let k12 = row_sums_of_c[item as usize] as u64;
-
   for (other_item, num_cooccurrences) in cooccurrence_counts.iter() {
     let k11 = *num_cooccurrences as u64;
-    let k21 = row_sums_of_c[*other_item as usize] as u64;
+    let k12 = row_sums_of_c[item as usize] as u64 - k11;
+    let k21 = row_sums_of_c[*other_item as usize] as u64 - k11;
     let k22 = num_cooccurrences_observed + k11 - k12 - k21;
 
     let llr_score = loglikelihoodratio::log_likelihood_ratio(k11, k12, k21, k22);
 
-    //FIXED PRECISION math...
-    let score = (llr_score * 1000.0) as i64;
-    let scored_item = ScoredItem { item: *other_item, score: score };
+    let scored_item = ScoredItem { item: *other_item, score: llr_score };
 
     if indicators_for_item.len() < k {
       indicators_for_item.push(scored_item);
     } else if scored_item < *indicators_for_item.peek().unwrap() {
-      indicators_for_item.pop();
-      indicators_for_item.push(scored_item);
+      let mut top = indicators_for_item.peek_mut().unwrap();
+      *top = scored_item;
     }
 
   }
