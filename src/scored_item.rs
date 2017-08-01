@@ -22,7 +22,5 @@ impl Ord for ScoredItem {
 }
 
 impl PartialOrd for ScoredItem {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(cmp_reverse(self, other))
-  }
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(cmp_reverse(self, other)) }
 }

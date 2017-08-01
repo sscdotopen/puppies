@@ -99,7 +99,7 @@ fn main() {
         } else {
 
           let num_interactions_seen_by_user = user_non_sampled_interaction_counts[user as usize];
-          let k: usize = rng.gen_range(0, num_interactions_seen_by_user as usize + 1);
+          let k: usize = rng.gen_range(0, num_interactions_seen_by_user as usize);
 
           if k < num_items_in_user_history {
             let previous_item = user_history[k];
@@ -136,9 +136,7 @@ fn main() {
         let indicators_for_item = &indicators[*item as usize];
 
         scope.execute(move|| {
-          rescore(*item, row, &row_sums_of_c,
-                  &num_cooccurrences_observed, indicators_for_item,
-                  K)
+          rescore(*item, row, &row_sums_of_c, &num_cooccurrences_observed, indicators_for_item, K)
         });
       }
     });
@@ -185,6 +183,7 @@ fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: 
   indicators_for_item.clear();
 
   for (other_item, num_cooccurrences) in cooccurrence_counts.iter() {
+
     let k11 = *num_cooccurrences as u64;
     let k12 = row_sums_of_c[item as usize] as u64 - k11;
     let k21 = row_sums_of_c[*other_item as usize] as u64 - k11;
