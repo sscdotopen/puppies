@@ -34,16 +34,16 @@ pub fn log_likelihood_ratio(k11: u64, k12: u64, k21: u64, k22: u64) -> f64 {
 
   let xlx_all = x_log_x(k11 + k12 + k21 + k22);
 
-  let xlx_row = xlx_all - x_log_x(k11 + k12) - x_log_x(k21 + k22);
-  let xlx_col = xlx_all - x_log_x(k11 + k21) - x_log_x(k12 + k22);
+  let row_entropy = xlx_all - x_log_x(k11 + k12) - x_log_x(k21 + k22);
+  let column_entropy = xlx_all - x_log_x(k11 + k21) - x_log_x(k12 + k22);
 
-  let xlx_mat = xlx_all - x_log_x(k11) - x_log_x(k12) -  x_log_x(k21) - x_log_x(k22);
+  let matrix_entropy = xlx_all - x_log_x(k11) - x_log_x(k12) -  x_log_x(k21) - x_log_x(k22);
 
-  if xlx_row + xlx_col < xlx_mat {
+  if row_entropy + column_entropy < matrix_entropy {
     // round off error
     0.0
   } else {
-    2.0 * (xlx_row + xlx_col - xlx_mat)
+    2.0 * (row_entropy + column_entropy - matrix_entropy)
   }
 }
 
