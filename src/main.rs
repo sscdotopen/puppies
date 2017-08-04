@@ -1,4 +1,3 @@
-extern crate csv;
 extern crate rand;
 extern crate fnv;
 extern crate scoped_pool;
@@ -11,55 +10,56 @@ use rand::Rng;
 use fnv::{FnvHashMap, FnvHashSet};
 use scoped_pool::Pool;
 
-mod loglikelihoodratio;
-mod scored_item;
-
-use scored_item::ScoredItem;
+mod llr;
+mod utils;
 
 
+// cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/ml1m-shuffled.csv 9746 6040 8
+// cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/dblp-shuffled.csv 1314051 1314051 8
 
 fn main() {
 
-  let pool_size: usize = std::env::args().nth(1).unwrap().parse().unwrap();
+  let file: String = std::env::args().nth(1).unwrap().parse().unwrap();
+  let num_users: usize = std::env::args().nth(2).unwrap().parse().unwrap();
+  let num_items: usize = std::env::args().nth(3).unwrap().parse().unwrap();
+  let pool_size: usize = std::env::args().nth(4).unwrap().parse().unwrap();
 
   let pool = Pool::new(pool_size);
-
-  let file =
-    "/home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/ml1m-shuffled.csv";
-
-  const NUM_USERS: usize = 9746;
-  const NUM_ITEMS: usize = 6040;
 
   const F_MAX: u32 = 500;
   const K_MAX: u32 = 500;
   const K: usize = 10;
   const BATCH_SIZE: usize = 10000;
 
-  let mut user_non_sampled_interaction_counts: [u32; NUM_USERS] = [0; NUM_USERS];
-  let mut user_interaction_counts: [u32; NUM_USERS] = [0; NUM_USERS];
-  let mut item_interaction_counts: [u32; NUM_ITEMS] = [0; NUM_ITEMS];
+  let mut user_non_sampled_interaction_counts: Vec<u32> = utils::int_vec_of_size(num_users, 0);
+  let mut user_interaction_counts: Vec<u32> = utils::int_vec_of_size(num_users, 0);
+  let mut item_interaction_counts: Vec<u32> = utils::int_vec_of_size(num_items, 0);
 
   let mut samples_of_a: Vec<Vec<u32>> = std::iter::repeat(Vec::with_capacity(10))
-      .take(NUM_USERS)
+      .take(num_users)
       .collect::<Vec<Vec<u32>>>();
 
-  let mut c: Vec<FnvHashMap<u32,u16>> = Vec::with_capacity(NUM_ITEMS);
-  let mut indicators: Vec<Mutex<BinaryHeap<ScoredItem>>> = Vec::with_capacity(NUM_ITEMS);
+  let mut c: Vec<FnvHashMap<u32,u16>> = Vec::with_capacity(num_items);
+  let mut indicators: Vec<Mutex<BinaryHeap<llr::ScoredItem>>> = Vec::with_capacity(num_items);
 
-  for _ in 0..NUM_ITEMS {
+  for _ in 0..num_items {
     c.push(FnvHashMap::with_capacity_and_hasher(10, Default::default()));
     indicators.push(Mutex::new(BinaryHeap::with_capacity(K)));
   }
 
-  let mut row_sums_of_c: [u32; NUM_ITEMS] = [0; NUM_ITEMS];
+  let mut row_sums_of_c: Vec<u32> = utils::int_vec_of_size(num_items, 0);
 
   let mut num_interactions_observed: u64 = 0;
   let mut num_cooccurrences_observed: u64 = 0;
 
   let mut rng = rand::XorShiftRng::new_unseeded();
 
-  let batches = read_file_into_batches(&file, BATCH_SIZE);
+  let batches = utils::read_file_into_batches(&file, BATCH_SIZE);
 
+  println!("{} batches to process", batches.len());
+
+  let mut duration_for_all_batches: u64 = 0;
+  let mut num_items_rescored_in_all_batches: u64 = 0;
 
   for batch in batches.iter() {
 
@@ -98,7 +98,8 @@ fn main() {
 
         } else {
 
-          let num_interactions_seen_by_user = user_non_sampled_interaction_counts[user as usize];
+          let num_interactions_seen_by_user =
+            user_non_sampled_interaction_counts[user as usize];
           let k: usize = rng.gen_range(0, num_interactions_seen_by_user as usize);
 
           if k < num_items_in_user_history {
@@ -134,50 +135,30 @@ fn main() {
 
         let row = &c[*item as usize];
         let indicators_for_item = &indicators[*item as usize];
+        let reference_to_row_sums_of_c = &row_sums_of_c;
 
         scope.execute(move|| {
-          rescore(*item, row, &row_sums_of_c, &num_cooccurrences_observed, indicators_for_item, K)
+          rescore(*item, row, reference_to_row_sums_of_c, &num_cooccurrences_observed,
+                  indicators_for_item, K)
         });
       }
     });
 
+    let duration_for_batch = utils::to_millis(batch_start.elapsed());
+    println!("{}, {}ms for last batch, {} items rescored", num_interactions_observed,
+             duration_for_batch, items_to_rescore.len());
 
-    let millis = (batch_start.elapsed().as_secs() * 1_000) +
-        (batch_start.elapsed().subsec_nanos() / 1_000_000) as u64;
-    println!("{} ({}ms for last batch, {} items rescored)", num_interactions_observed, millis,
-        items_to_rescore.len());
+    duration_for_all_batches += duration_for_batch;
+    num_items_rescored_in_all_batches += items_to_rescore.len() as u64;
   }
 
-}
-
-fn read_file_into_batches(file: &str, batch_size: usize) -> Vec<Vec<(u32, u32)>> {
-
-  let mut csv_reader = csv::Reader::from_file(file).unwrap().has_headers(false);
-
-  let mut batches = vec![];
-  let mut current_batch: Vec<(u32, u32)> = Vec::with_capacity(batch_size);
-
-  for record in csv_reader.decode() {
-    let (user, item): (u32, u32) = record.unwrap();
-
-    if current_batch.len() < batch_size {
-      current_batch.push((user, item));
-    } else {
-      batches.push(current_batch.clone());
-      current_batch.clear();
-    }
-  }
-
-  if !current_batch.is_empty() {
-    batches.push(current_batch.clone());
-  }
-
-  batches
+  println!("Overall {}ms, {} items rescored, {} num cooccurrences observed",
+           duration_for_all_batches, num_items_rescored_in_all_batches, num_cooccurrences_observed)
 }
 
 
 fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: &[u32],
-  num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<ScoredItem>>, k: usize) {
+  num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<llr::ScoredItem>>, k: usize) {
 
   let mut indicators_for_item = indicators.lock().unwrap();
   indicators_for_item.clear();
@@ -189,9 +170,9 @@ fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: 
     let k21 = row_sums_of_c[*other_item as usize] as u64 - k11;
     let k22 = num_cooccurrences_observed + k11 - k12 - k21;
 
-    let llr_score = loglikelihoodratio::log_likelihood_ratio(k11, k12, k21, k22);
+    let llr_score = llr::log_likelihood_ratio(k11, k12, k21, k22);
 
-    let scored_item = ScoredItem { item: *other_item, score: llr_score };
+    let scored_item = llr::ScoredItem { item: *other_item, score: llr_score };
 
     if indicators_for_item.len() < k {
       indicators_for_item.push(scored_item);

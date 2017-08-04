@@ -7,4 +7,11 @@ authors = ["ssc <ssc@apache.org>"]
 rand="0.3.13"
 csv="0.15.0"
 fnv="1.0.5"
-scoped-pool = "1"
+scoped-pool="1"
+
+[profile.release]
+opt-level = 3
+debug = true
+rpath = false
+lto = false
+debug-assertions = false
