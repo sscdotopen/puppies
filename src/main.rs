@@ -84,6 +84,7 @@ fn main() {
             *c[*other_item as usize].entry(item).or_insert(0) += 1;
 
             row_sums_of_c[*other_item as usize] += 1;
+            items_to_rescore.insert(*other_item);
           }
 
           row_sums_of_c[item as usize] += num_items_in_user_history as u32;
@@ -113,6 +114,9 @@ fn main() {
 
                 *c[previous_item as usize].entry(*other_item).or_insert(0) -= 1;
                 *c[*other_item as usize].entry(previous_item).or_insert(0) -= 1;
+
+                items_to_rescore.insert(*other_item);
+                items_to_rescore.insert(previous_item);
               }
             }
 
