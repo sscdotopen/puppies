@@ -16,6 +16,7 @@ mod utils;
 
 // cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/ml1m-shuffled.csv 9746 6040 8
 // cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/dblp-shuffled.csv 1314051 1314051 8
+// cargo run --release /home/ssc/Entwicklung/datasets/twitterhashtags/twitter.csv 8094909 3070055 8
 
 fn main() {
 
@@ -116,7 +117,6 @@ fn main() {
                 *c[*other_item as usize].entry(previous_item).or_insert(0) -= 1;
 
                 items_to_rescore.insert(*other_item);
-                items_to_rescore.insert(previous_item);
               }
             }
 
@@ -128,6 +128,7 @@ fn main() {
             item_interaction_counts[item as usize] += 1;
             item_interaction_counts[previous_item as usize] -= 1;
 
+            items_to_rescore.insert(previous_item);
             items_to_rescore.insert(item);
           }
         }
