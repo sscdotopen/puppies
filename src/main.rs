@@ -32,6 +32,11 @@ fn main() {
   const K: usize = 10;
   const BATCH_SIZE: usize = 10000;
 
+  // larger of both values needs to be added
+  const MAX_COOCCURRENCES: usize = (F_MAX * K_MAX + K_MAX) as usize;
+  let pre_computed_logarithms: Vec<f64> = llr::pre_compute_logarithms(MAX_COOCCURRENCES);
+
+
   let mut user_non_sampled_interaction_counts: Vec<u32> = utils::int_vec_of_size(num_users, 0);
   let mut user_interaction_counts: Vec<u32> = utils::int_vec_of_size(num_users, 0);
   let mut item_interaction_counts: Vec<u32> = utils::int_vec_of_size(num_items, 0);
@@ -141,10 +146,11 @@ fn main() {
         let row = &c[*item as usize];
         let indicators_for_item = &indicators[*item as usize];
         let reference_to_row_sums_of_c = &row_sums_of_c;
+        let reference_to_pre_computed_logarithms = &pre_computed_logarithms;
 
         scope.execute(move|| {
           rescore(*item, row, reference_to_row_sums_of_c, &num_cooccurrences_observed,
-                  indicators_for_item, K)
+                  indicators_for_item, K, reference_to_pre_computed_logarithms)
         });
       }
     });
@@ -157,13 +163,15 @@ fn main() {
     num_items_rescored_in_all_batches += items_to_rescore.len() as u64;
   }
 
-  println!("Overall {}ms, {} items rescored, {} num cooccurrences observed",
-           duration_for_all_batches, num_items_rescored_in_all_batches, num_cooccurrences_observed)
+  println!("Overall {}ms, {}ms avg per batch, {} items rescored, {} num cooccurrences observed",
+           duration_for_all_batches, duration_for_all_batches / batches.len() as u64,
+           num_items_rescored_in_all_batches, num_cooccurrences_observed)
 }
 
 
 fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: &[u32],
-  num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<llr::ScoredItem>>, k: usize) {
+  num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<llr::ScoredItem>>, k: usize,
+  precomputed_logarithms: &Vec<f64>) {
 
   let mut indicators_for_item = indicators.lock().unwrap();
   indicators_for_item.clear();
@@ -175,7 +183,8 @@ fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: 
     let k21 = row_sums_of_c[*other_item as usize] as u64 - k11;
     let k22 = num_cooccurrences_observed + k11 - k12 - k21;
 
-    let llr_score = llr::log_likelihood_ratio(k11, k12, k21, k22);
+    let llr_score = llr::log_likelihood_ratio_with_pre(k11, k12, k21, k22,
+        precomputed_logarithms);
 
     let scored_item = llr::ScoredItem { item: *other_item, score: llr_score };
 

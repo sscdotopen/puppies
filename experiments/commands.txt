@@ -1,0 +1,3 @@
+cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/ml20m.csv 138493 27278 8
+cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/lastfm.csv 992 174077 8
+cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/ml1m.csv 9746 6040 8
