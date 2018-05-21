@@ -1,4 +1,3 @@
-use std;
 use std::cmp::Ordering;
 
 
@@ -28,34 +27,31 @@ impl PartialOrd for ScoredItem {
   fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(cmp_reverse(self, other)) }
 }
 
-pub fn pre_compute_logarithms(max_cooccurrences: usize) -> Vec<f64> {
+pub fn logarithms_table(max_arg: usize) -> Vec<f64> {
 
-  let mut pre_computed_logarithms: Vec<f64> =
-      std::iter::repeat(0.0)
-          .take(max_cooccurrences)
-          .collect::<Vec<f64>>();
+  let mut logarithms: Vec<f64> = Vec::with_capacity(max_arg);
 
-  for index in 1..max_cooccurrences {
-    pre_computed_logarithms[index] = (index as f64).ln();
+  logarithms.push(0.0);
+  for index in 1..max_arg {
+    logarithms.push((index as f64).ln());
   }
 
-  pre_computed_logarithms
+  logarithms
 }
 
 /* https://github.com/apache/mahout/blob/08e02602e947ff945b9bd73ab5f0b45863df3e53/math/src/main/java/org/apache/mahout/math/stats/LogLikelihood.java  */
 #[inline(always)]
-pub fn log_likelihood_ratio_with_pre(k11: u64, k12: u64, k21: u64, k22: u64,
-    precomputed_logarithms: &Vec<f64>) -> f64 {
+pub fn log_likelihood_ratio(k11: u64, k12: u64, k21: u64, k22: u64, logarithms: &Vec<f64>) -> f64 {
 
   /* Thank you Frank - https://www.reddit.com/r/rust/comments/6qmnbo/why_is_my_scala_program_twice_as_fast_as_my_rust/dl0x1bj/ */
 
   let xlx_all = x_log_x(k11 + k12 + k21 + k22);
 
-  let log_k11 = precomputed_logarithms[k11 as usize];
-  let log_k12 = precomputed_logarithms[k12 as usize];
-  let log_k21 = precomputed_logarithms[k21 as usize];
-  let log_k11_12 = precomputed_logarithms[(k11 + k12) as usize];
-  let log_k11_21 = precomputed_logarithms[(k11 + k21) as usize];
+  let log_k11 = logarithms[k11 as usize];
+  let log_k12 = logarithms[k12 as usize];
+  let log_k21 = logarithms[k21 as usize];
+  let log_k11_12 = logarithms[(k11 + k12) as usize];
+  let log_k11_21 = logarithms[(k11 + k21) as usize];
 
   let row_entropy = xlx_all - x_times_log_x(k11 + k12, log_k11_12) - x_log_x(k21 + k22);
   let column_entropy = xlx_all - x_times_log_x(k11 + k21, log_k11_21) - x_log_x(k12 + k22);
@@ -72,7 +68,7 @@ pub fn log_likelihood_ratio_with_pre(k11: u64, k12: u64, k21: u64, k22: u64,
 
 
 #[inline(always)]
-fn x_log_x(x: u64) -> f64 {
+pub fn x_log_x(x: u64) -> f64 {
   if x == 0 { 0.0 } else { (x as f64) * (x as f64).ln() }
 }
 
@@ -91,20 +87,15 @@ mod tests {
   # [test]
   fn llr() {
     // Some cases from Ted's paper http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.14.5962
-    const EPS: f64 = 0.01;
+    let logs = llr::logarithms_table(500 * 500 + 500);
 
-    let precomputed = llr::pre_compute_logarithms(500 * 500 + 500);
-
-    assert!(close_enough_to(llr::log_likelihood_ratio_with_pre(110, 2442, 111, 29114, &precomputed),
-        270.72, EPS));
-    assert!(close_enough_to(llr::log_likelihood_ratio_with_pre(29, 13, 123, 31612, &precomputed),
-        263.90, EPS));
-    assert!(close_enough_to(llr::log_likelihood_ratio_with_pre(9, 12, 429, 31327, &precomputed),
-        48.94, EPS));
+    assert!(close_enough_to(llr::log_likelihood_ratio(110, 2442, 111, 29114, &logs), 270.72));
+    assert!(close_enough_to(llr::log_likelihood_ratio(29, 13, 123, 31612, &logs), 263.90));
+    assert!(close_enough_to(llr::log_likelihood_ratio(9, 12, 429, 31327, &logs), 48.94));
   }
 
-  fn close_enough_to(value: f64, expected: f64, eps: f64) -> bool {
-    (value - expected).abs() < eps
+  fn close_enough_to(value: f64, expected: f64) -> bool {
+    (value - expected).abs() < 0.01
   }
 
   #[test]

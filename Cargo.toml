@@ -3,6 +3,11 @@ name = "puppies"
 version = "0.1.0"
 authors = ["ssc <ssc@apache.org>"]
 
+[[bin]]
+name = "main"
+path = "src/main.rs"
+doc = false
+
 [dependencies]
 rand="0.3.13"
 csv="0.15.0"
