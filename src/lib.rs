@@ -13,40 +13,41 @@ use scoped_pool::Pool;
 pub mod llr;
 mod utils;
 
+use llr::ScoredItem;
 
-// cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/ml1m-shuffled.csv 9746 6040 8
-// cargo run --release /home/ssc/Entwicklung/projects/incremental-cooccurrences/src/main/resources/dblp-shuffled.csv 1314051 1314051 8
-// cargo run --release /home/ssc/Entwicklung/datasets/twitterhashtags/twitter.csv 8094909 3070055 8
 
-pub fn incremental_indicators(file: String, num_users: usize, num_items: usize, pool_size: usize) {
+type DenseVector = Vec<u32>;
+type SparseVector = FnvHashMap<u32,u16>;
+type SparseMatrix = Vec<SparseVector>;
+
+pub fn incremental_indicators(file: String, num_users: usize, num_items: usize, pool_size: usize,
+                              batch_size: usize, k: usize) {
 
     let pool = Pool::new(pool_size);
 
     const F_MAX: u32 = 500;
     const K_MAX: u32 = 500;
-    const K: usize = 10;
-    const BATCH_SIZE: usize = 10000;
 
     // larger of both values needs to be added
     const MAX_COOCCURRENCES: usize = (F_MAX * K_MAX + K_MAX) as usize;
     let pre_computed_logarithms: Vec<f64> = llr::logarithms_table(MAX_COOCCURRENCES);
 
     // Downsampled history matrix A
-    let mut user_non_sampled_interaction_counts: Vec<u32> = vec![0; num_users];
-    let mut user_interaction_counts: Vec<u32> = vec![0; num_users];
-    let mut item_interaction_counts: Vec<u32> = vec![0; num_items];
+    let mut user_non_sampled_interaction_counts: DenseVector = vec![0; num_users];
+    let mut user_interaction_counts: DenseVector = vec![0; num_users];
+    let mut item_interaction_counts: DenseVector = vec![0; num_items];
     let mut samples_of_a: Vec<Vec<u32>> = vec![Vec::with_capacity(10); num_users];
 
     // Cooccurrence matrix C
-    let mut c: Vec<FnvHashMap<u32,u16>> =
+    let mut c: SparseMatrix =
         vec![FnvHashMap::with_capacity_and_hasher(10, Default::default()); num_items];
-    let mut row_sums_of_c: Vec<u32> = vec![0; num_items];
+    let mut row_sums_of_c: DenseVector = vec![0; num_items];
 
     // Indicator matrix I
-    let mut indicators: Vec<Mutex<BinaryHeap<llr::ScoredItem>>> = Vec::with_capacity(num_items);
+    let mut indicators: Vec<Mutex<BinaryHeap<ScoredItem>>> = Vec::with_capacity(num_items);
 
     for _ in 0..num_items {
-        indicators.push(Mutex::new(BinaryHeap::with_capacity(K)));
+        indicators.push(Mutex::new(BinaryHeap::with_capacity(k)));
     }
 
 
@@ -55,7 +56,7 @@ pub fn incremental_indicators(file: String, num_users: usize, num_items: usize, 
 
     let mut rng = rand::XorShiftRng::new_unseeded();
 
-    let batches = utils::read_file_into_batches(&file, BATCH_SIZE);
+    let batches = utils::read_file_into_batches(&file, batch_size);
 
     println!("{} batches to process", batches.len());
 
@@ -153,7 +154,7 @@ pub fn incremental_indicators(file: String, num_users: usize, num_items: usize, 
 
                 scope.execute(move|| {
                     rescore(*item, row, reference_to_row_sums_of_c, &num_cooccurrences_observed,
-                        indicators_for_item, K, reference_to_pre_computed_logarithms)
+                        indicators_for_item, k, reference_to_pre_computed_logarithms)
                 });
             }
         });
@@ -161,20 +162,21 @@ pub fn incremental_indicators(file: String, num_users: usize, num_items: usize, 
         let duration_for_batch = utils::to_millis(batch_start.elapsed());
         println!("{}, {}ms for last batch, {} items rescored", num_interactions_observed,
              duration_for_batch, items_to_rescore.len());
+        println!("LOG,{},{}", num_interactions_observed / batch_size as u64, duration_for_batch);
 
         duration_for_all_batches += duration_for_batch;
         num_items_rescored_in_all_batches += items_to_rescore.len() as u64;
     }
 
     println!("Overall runtime: {}ms, {}ms per batch on average, {} items rescored, \
-        {} num cooccurrences observed", duration_for_all_batches,
+        {} cooccurrences observed", duration_for_all_batches,
         duration_for_all_batches / batches.len() as u64, num_items_rescored_in_all_batches,
         num_cooccurrences_observed)
 }
 
 
-fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: &[u32],
-    num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<llr::ScoredItem>>,
+fn rescore(item: u32, cooccurrence_counts: &SparseVector, row_sums_of_c: &DenseVector,
+    num_cooccurrences_observed: &u64, indicators: &Mutex<BinaryHeap<ScoredItem>>,
     k: usize, logarithms_table: &Vec<f64>) {
 
     let mut indicators_for_item = indicators.lock().unwrap();
@@ -189,7 +191,7 @@ fn rescore(item: u32, cooccurrence_counts: &FnvHashMap<u32,u16>, row_sums_of_c: 
 
         let llr_score = llr::log_likelihood_ratio(k11, k12, k21, k22, logarithms_table);
 
-        let scored_item = llr::ScoredItem { item: *other_item, score: llr_score };
+        let scored_item = ScoredItem { item: *other_item, score: llr_score };
 
         if indicators_for_item.len() < k {
             indicators_for_item.push(scored_item);

@@ -68,7 +68,8 @@ pub fn log_likelihood_ratio(k11: u64, k12: u64, k21: u64, k22: u64, logarithms: 
 
 #[inline(always)]
 pub fn x_log_x(x: u64) -> f64 {
-    if x == 0 { 0.0 } else { (x as f64) * (x as f64).ln() }
+    //Note we only call this for values >= k22 > 0, therefore we can omit the 0 check
+    x as f64 * (x as f64).ln()
 }
 
 #[inline(always)]
